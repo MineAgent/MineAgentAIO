@@ -102,7 +102,7 @@ Baritone（LGPL-3.0，实测 **1.19.0**，即 `baritone-api-fabric-1.19.0.jar`�
 
 ### 不依赖游戏验证 HTTP 层
 
-`tools/` 下有两个脱离游戏的小工具（只编译模组里不碰 Minecraft 的类）：
+`tools/` 下有三个脱离游戏的小工具（只编译模组里不碰 Minecraft 的类）：
 
 ```bash
 mkdir -p build/verify
@@ -116,6 +116,16 @@ javac --release 25 -encoding UTF-8 -d build/verify \
   src/main/java/com/mineagent/aio/http/*.java \
   src/main/java/com/mineagent/aio/aif/{InfoEndpoint,InfoProvider,Help}.java tools/VerifyAif.java
 java -cp build/verify VerifyAif     # 用假 provider 挂起 /aif，停在 3420 供 curl
+```
+
+退出（看门狗）也能脱离游戏验证，见下一节：
+
+```bash
+javac --release 25 -encoding UTF-8 -d build/verify \
+  src/main/java/com/mineagent/aio/http/*.java \
+  src/main/java/com/mineagent/aio/ctl/{Action,CommandException,CommandRunner,InputExecutor}.java \
+  tools/VerifyExit.java
+java -cp build/verify VerifyExit    # 全部 ok 才退 0
 ```
 
 ## 实测（Minecraft 26.2 + Fabric Loader 0.19.5，Linux，窗口 854×480）
@@ -148,8 +158,46 @@ java -cp build/verify VerifyAif     # 用假 provider 挂起 /aif，停在 3420 
 | `POST /op 'inventory minecraft:stick 3'` | 200 `已对调：快捷栏第 3 格 ← 木棍 ×12（换出 橡木木板 ×14）`，截图里快捷栏第 3 格确实是木棍 |
 | `POST /op 'craft'`（缺参数） | 400，附带出错位置和插入符 `^`，文案是中文（不依赖 Fabric API） |
 | noautopause | 日志 `noautopause: pauseOnLostFocus=false (the client keeps running while unfocused)` |
-| 正常退出（关窗口） | 日志 `client exited, stopping the HTTP server` → `exiting the JVM so the post-main shutdown watchdog cannot fire`；**进程退出码 0，`crash-reports/` 不新增文件**（没有这一层的话 15 秒后必现 `Client shutdown from post-main`） |
+| 正常退出（关窗口，4 轮都验过） | 日志 `client exited, running the teardown` → `exiting the JVM so the post-main shutdown watchdog cannot fire`；**进程退出码 0，`crash-reports/` 不新增文件**（没有这一层的话 15 秒后必现 `Client shutdown from post-main`） |
+| 退出处理（脱离游戏） | `VerifyExit` 全过：JDK 的 `HTTP-Dispatcher` 确实是非 daemon（危险是真的）、本模组的线程全是 daemon、`Httpd.stop()` 之后那个非 daemon 线程消失且可重复调用 |
 | 不依赖游戏 | `VerifyCtl`：43 个解析用例全过 + `/ctl` 传输层（含 `bt` 可用/不可用两条路径）全过；`VerifyAif`：`/aif` 传输层可 curl |
+
+## 退出时为什么不会写崩溃报告（看门狗）
+
+关窗口后渲染线程返回，原版 `Main` 会起一个 post-main 看门狗：**15 秒**内 JVM 还没结束，就写一份
+`Client shutdown from post-main` 崩溃报告并 `System.exit(-8)`。而 JVM 只有在**所有非 daemon 线程**都结束后才会自己退出：
+
+* `com.sun.net.httpserver`（本模组的 3420 服务）自己带一个**非 daemon** 的 `HTTP-Dispatcher` 线程；
+* 别的模组也会留非 daemon 线程（Baritone 有 worker pool）。
+
+JVM 关闭钩子救不了这种情况（JVM 根本没开始关闭，钩子不会执行），所以本模组在
+`com.mineagent.aio.ClientExitWatcher` 里守候渲染线程（`Minecraft#getRunningThread()`），线程一结束就：
+
+1. 跑 teardown（松开所有按键、停命令队列、`Httpd.stop()` 停掉 HTTP 服务）；
+2. 显式 `System.exit(0)` —— 这时世界早已由原版保存、窗口早已关闭，所以不会丢存档。
+
+几个刻意的设计：
+
+* **无条件安装**：teardown 与守候在 `Httpd.start()` **之前**就装好了，端口被占用（比如开了第二个游戏实例）
+  也一样生效——那种情况下本模组确实没有服务，但 Baritone 之类的非 daemon 线程照样会让看门狗开火。
+* **不掩盖真正的失败**：如果 JVM 已经在关闭中（崩溃、SIGTERM 等会跑关闭钩子），守候线程只做 teardown，
+  不再 `System.exit`，以免把那次失败的退出码覆盖成 0。
+* **本模组自己的线程全是 daemon**（`mineagentaio-http` 线程池、`mineagentaio-runner`、守候线程本身），
+  所以它们永远不会成为「JVM 不退出」的原因；显式退出只是为了 JDK 的 `HTTP-Dispatcher` 和其它模组的线程。
+
+脱离游戏的验证（`tools/VerifyExit.java`，不需要启动客户端）逐条检查上面这些：
+
+```
+ok   Httpd.start() succeeded
+ok   the JDK leaves a non-daemon 'HTTP-Dispatcher' thread behind (the hazard is real)
+ok   serving works while probing
+ok   the HTTP worker pool is a daemon thread
+ok   the command runner is a daemon thread
+ok   Httpd.stop() removed the non-daemon dispatcher thread
+ok   Httpd.stop() removed the HTTP worker pool
+ok   no non-daemon thread is left behind by this mod
+ok   the JVM would now exit on its own (no thread of ours keeps it alive)
+```
 
 ## 已知限制
 
@@ -183,6 +231,7 @@ src/main/java/com/mineagent/aio/
   mixin/SoundEngineMixin.java     声音引擎 → /aif/sound
 tools/VerifyCtl.java        脱离游戏验证解析层 + /ctl 传输层
 tools/VerifyAif.java        脱离游戏验证 /aif 传输层
+tools/VerifyExit.java       脱离游戏验证退出/看门狗处理（线程 daemon 属性、teardown）
 mcctl craftcmd aifetch      命令行封装脚本（curl）
 ```
 

@@ -32,7 +32,7 @@ public final class CommandRunner {
 	public CommandRunner(InputExecutor executor) {
 		this.executor = executor;
 		this.worker = Executors.newSingleThreadExecutor(r -> {
-			Thread t = new Thread(r, "mcctl-runner");
+			Thread t = new Thread(r, "mineagentaio-runner");
 			t.setDaemon(true);
 			return t;
 		});

@@ -49,13 +49,14 @@ public final class MineAgentAIOMod implements ClientModInitializer {
 
 		MineAgentAIO.LOGGER.info("MineAgentAIO {} starting", MineAgentAIO.version());
 
-		if (!Httpd.start()) {
-			return;
-		}
-
-		// The mixins own the per-tick work (craft jobs, noautopause). Here we only handle the
-		// teardown: release anything the input layer may still be holding, stop the HTTP server, and
-		// end the JVM once the render thread is gone so the post-main watchdog cannot fire.
+		// The mixins own the per-tick work (craft jobs, noautopause); this is the teardown: release
+		// anything the input layer may still be holding, stop the HTTP server, and end the JVM once
+		// the render thread is gone so the post-main watchdog cannot fire.
+		//
+		// It is installed *before* the server starts, and no matter whether it starts at all: the
+		// watchdog fires whenever any non-daemon thread is left behind, and this mod is not the only
+		// source of those. The realistic case where binding fails is a second game instance, and
+		// that instance still needs a clean exit (Baritone keeps worker threads of its own).
 		Runnable teardown = () -> {
 			executor.releaseAll();
 			runner.shutdown();
@@ -64,5 +65,11 @@ public final class MineAgentAIOMod implements ClientModInitializer {
 		ClientExitWatcher.onClientExit(teardown);
 		// Still tear down on a real JVM shutdown (crash, SIGTERM, System.exit, ...).
 		Runtime.getRuntime().addShutdownHook(new Thread(teardown, "mineagentaio-shutdown"));
+
+		if (!Httpd.start()) {
+			MineAgentAIO.LOGGER.error("MineAgentAIO is not listening on http://{}:{} - the game runs,"
+					+ " but no endpoint is reachable (is another instance already running?)",
+					Httpd.HOST, Httpd.PORT);
+		}
 	}
 }
