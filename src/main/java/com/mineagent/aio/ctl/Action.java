@@ -1,0 +1,121 @@
+// SPDX-License-Identifier: LGPL-3.0-only
+// Copyright (C) 2026 MineAgent
+
+package com.mineagent.aio.ctl;
+
+import java.util.List;
+
+/**
+ * One executable step produced by {@link CommandParser}.
+ *
+ * @param kind        what to do
+ * @param keys        canonical key names for {@link Kind#KEYS}
+ * @param button      canonical mouse button name for {@link Kind#MOUSE_BUTTON}
+ * @param message     chat text for {@link Kind#CHAT}, or the Baritone command without its leading
+ *                    {@code #} for {@link Kind#BARITONE}
+ * @param holdMs      how long keys/buttons are held down
+ * @param delayMs     how long to sleep before performing this action
+ * @param dx          horizontal mouse delta in pixels, or the absolute x for {@link Kind#MOUSE_GOTO}
+ * @param dy          vertical mouse delta in pixels (positive = down, like GLFW), or the absolute y
+ * @param amount      scroll amount (positive = wheel up)
+ */
+public record Action(Kind kind, List<String> keys, String button, String message, long holdMs, long delayMs,
+		int dx, int dy, double amount) {
+
+	public enum Kind {
+		/** press one or more keys, wait, release them */
+		KEYS,
+		/** press a mouse button, wait, release it */
+		MOUSE_BUTTON,
+		/** move the mouse/camera by a pixel delta */
+		MOUSE_MOVE,
+		/** move the mouse cursor to an absolute window-pixel position (screen open only) */
+		MOUSE_GOTO,
+		/** turn the mouse wheel */
+		MOUSE_SCROLL,
+		/** send a chat message */
+		CHAT,
+		/** run a Baritone command through Baritone's API (no leading '#') */
+		BARITONE,
+		/** type text into the focused text box of the open screen */
+		TYPE_TEXT,
+		/** press ENTER in the focused text box of the open screen */
+		TYPE_ENTER,
+		/** release every held key/button */
+		RELEASE_ALL
+	}
+
+	public Action {
+		keys = keys == null ? List.of() : List.copyOf(keys);
+	}
+
+	public static Action keys(List<String> keys, long holdMs, long delayMs) {
+		return new Action(Kind.KEYS, keys, null, null, holdMs, delayMs, 0, 0, 0.0);
+	}
+
+	public static Action mouseButton(String button, long holdMs, long delayMs) {
+		return new Action(Kind.MOUSE_BUTTON, null, button, null, holdMs, delayMs, 0, 0, 0.0);
+	}
+
+	public static Action mouseMove(int dx, int dy, long delayMs) {
+		return new Action(Kind.MOUSE_MOVE, null, null, null, 0, delayMs, dx, dy, 0.0);
+	}
+
+	/** Absolute cursor position in window pixels; only meaningful while a screen is open. */
+	public static Action mouseGoto(int x, int y, long delayMs) {
+		return new Action(Kind.MOUSE_GOTO, null, null, null, 0, delayMs, x, y, 0.0);
+	}
+
+	public static Action mouseScroll(double amount, long delayMs) {
+		return new Action(Kind.MOUSE_SCROLL, null, null, null, 0, delayMs, 0, 0, amount);
+	}
+
+	public static Action chat(String message, long delayMs) {
+		return new Action(Kind.CHAT, null, null, message, 0, delayMs, 0, 0, 0.0);
+	}
+
+	/** A Baritone command without the leading {@code #} (e.g. {@code goal ~ ~ ~20}). */
+	public static Action baritone(String command, long delayMs) {
+		return new Action(Kind.BARITONE, null, null, command, 0, delayMs, 0, 0, 0.0);
+	}
+
+	/** One {@code type} chunk; typing happens on the client thread and reports failures back. */
+	public static Action typeText(String text, long delayMs) {
+		return new Action(Kind.TYPE_TEXT, null, null, text, 0, delayMs, 0, 0, 0.0);
+	}
+
+	public static Action typeEnter(long delayMs) {
+		return new Action(Kind.TYPE_ENTER, null, null, null, 0, delayMs, 0, 0, 0.0);
+	}
+
+	public static Action releaseAll(long delayMs) {
+		return new Action(Kind.RELEASE_ALL, null, null, null, 0, delayMs, 0, 0, 0.0);
+	}
+
+	private static String signed(int value) {
+		return (value >= 0 ? "+" : "") + value;
+	}
+
+	/** Canonical textual form, also used in JSON replies. */
+	public String describe() {
+		String body = switch (kind) {
+			case KEYS -> String.join("+", keys) + (holdMs > 0 ? " " + holdMs : "");
+			case MOUSE_BUTTON -> "mouse " + button + (holdMs > 0 ? " " + holdMs : "");
+			case MOUSE_MOVE -> "mouse move " + signed(dx) + " " + signed(dy);
+			case MOUSE_GOTO -> "mouse goto " + dx + " " + dy;
+			case MOUSE_SCROLL -> "mouse scroll " + (amount == Math.rint(amount)
+					? String.valueOf((long) amount) : String.valueOf(amount));
+			case CHAT -> "chat " + message;
+			case BARITONE -> "bt " + message;
+			case TYPE_TEXT -> "type " + message;
+			case TYPE_ENTER -> "typeEnter";
+			case RELEASE_ALL -> "release";
+		};
+		return delayMs > 0 ? "delay " + delayMs + " " + body : body;
+	}
+
+	@Override
+	public String toString() {
+		return describe();
+	}
+}

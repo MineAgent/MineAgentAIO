@@ -1,0 +1,33 @@
+{
+	"schemaVersion": 1,
+	"id": "mineagentaio",
+	"version": "${version}",
+	"name": "MineAgentAIO",
+	"description": "All-in-one MineAgent client mod: one HTTP server on 127.0.0.1:3420 that turns the Minecraft client into a programmable agent interface. /ctl drives keyboard, mouse, camera and screenshots, /aif reports player state, inventory, chat and sounds as plain text, /op drives crafting, furnaces, chests and the hotbar, bt runs Baritone when it is installed, and automatic pausing is disabled so the client keeps ticking while the window is in the background. Merges MGHttpdProvider, mcctl, cmdCraft, AdvancedInfoFetcher and noautopause into a single mod; Baritone is optional and installed separately.",
+	"authors": [
+		"MineAgent"
+	],
+	"license": "LGPL-3.0-only",
+	"environment": "client",
+	"entrypoints": {
+		"client": [
+			"com.mineagent.aio.MineAgentAIOMod"
+		]
+	},
+	"mixins": [
+		"mineagentaio.mixins.json"
+	],
+	"depends": {
+		"fabricloader": ">=0.19.5",
+		"minecraft": "~26.2",
+		"java": ">=25"
+	},
+	"recommends": {
+		"baritone": ">=1.19.0"
+	},
+	"contact": {
+		"homepage": "https://github.com/MineAgent/MineAgentAIO",
+		"sources": "https://github.com/MineAgent/MineAgentAIO",
+		"issues": "https://github.com/MineAgent/MineAgentAIO/issues"
+	}
+}
