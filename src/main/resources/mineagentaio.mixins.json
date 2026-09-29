@@ -6,7 +6,8 @@
 	"client": [
 		"ChatComponentMixin",
 		"MinecraftMixin",
-		"SoundEngineMixin"
+		"SoundEngineMixin",
+		"WindowTitleMixin"
 	],
 	"injectors": {
 		"defaultRequire": 1

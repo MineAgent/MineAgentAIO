@@ -11,7 +11,7 @@ MineAgentAIO 是**多个模组的合并版**：MineAgent 自己的四个客户�
 
 | 模组 | 版本 | 上游仓库 | 合并后的位置 |
 | --- | --- | --- | --- |
-| MGHttpdProvider | 1.0 | <https://github.com/MineAgent/HttpdProvider> | `com.mineagent.aio.http`（重写为内部类，不再是独立模组） |
+| MGHttpdProvider | 1.1.0 | <https://github.com/MineAgent/HttpdProvider> | `com.mineagent.aio.http` + `WindowTitle`（重写为内部类，不再是独立模组） |
 | mcctl | 1.6.2 | <https://github.com/MineAgent/mcctl> | `com.mineagent.aio.ctl` |
 | AdvancedInfoFetcher | 1.6.3 | <https://github.com/MineAgent/AdvancedInfoFetcher> | `com.mineagent.aio.aif` |
 | cmdCraft | 1.3.2 | <https://github.com/MineAgent/cmdCraft> | `com.mineagent.aio.op` |

@@ -70,6 +70,12 @@ public final class MineAgentAIOMod implements ClientModInitializer {
 			MineAgentAIO.LOGGER.error("MineAgentAIO is not listening on http://{}:{} - the game runs,"
 					+ " but no endpoint is reachable (is another instance already running?)",
 					Httpd.HOST, Httpd.PORT);
+		} else {
+			// Say which port this instance is serving from the window title, so it is obvious which
+			// one of two running clients owns 3420. Only when the server really came up - a second
+			// instance must not claim the port - and every later title update keeps the suffix
+			// through WindowTitleMixin.
+			WindowTitle.refresh();
 		}
 	}
 }

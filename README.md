@@ -33,7 +33,7 @@ curl -o shot.png http://127.0.0.1:3420/ctl/prtsc                     # 截一张
 
 | 上游模组 | 版本 | 合并到 | 说明 |
 | --- | --- | --- | --- |
-| [MGHttpdProvider](https://github.com/MineAgent/HttpdProvider) | 1.0 | `com.mineagent.aio.http` | 原来是一个**独立的 lib 模组**（别的模组靠 `compileOnly` 依赖它注册前缀）。合并后不再需要它：HTTP 服务、前缀路由、`GET /` 索引、关游戏时的退出处理都变成了本模组内部的类（`Httpd` / `Http` / `PathHandler` / `ClientExitWatcher`），接口语义不变（同样是 `/ctl`、`/aif`、`/op` 三个前缀 + `GET /` 索引），但少了一个 jar、一次 `depends`、以及入口点顺序问题 |
+| [MGHttpdProvider](https://github.com/MineAgent/HttpdProvider) | 1.1.0 | `com.mineagent.aio.http` | 原来是一个**独立的 lib 模组**（别的模组靠 `compileOnly` 依赖它注册前缀）。合并后不再需要它：HTTP 服务、前缀路由、`GET /` 索引、关游戏时的退出处理、以及 1.1.0 起把端口写进**游戏窗口标题**（`WindowTitle` + `WindowTitleMixin`，走 GLFW，无平台分支）都变成了本模组内部的类（`Httpd` / `Http` / `PathHandler` / `ClientExitWatcher` / `WindowTitle`），接口语义不变（同样是 `/ctl`、`/aif`、`/op` 三个前缀 + `GET /` 索引），但少了一个 jar、一次 `depends`、以及入口点顺序问题 |
 | [mcctl](https://github.com/MineAgent/mcctl) | 1.6.2 | `com.mineagent.aio.ctl` | `/ctl`：按键 / 鼠标 / 视角 / 滚轮 / 截图 / 光标位置 / 聊天 / `type` 打字 / Baritone |
 | [AdvancedInfoFetcher](https://github.com/MineAgent/AdvancedInfoFetcher) | 1.6.3 | `com.mineagent.aio.aif` | `/aif`：坐标 / 朝向 / 生命 / 饱食 / 状态效果 / 背包 / 容器 / 维度 / 时间 / 天气 / 聊天回显 / 声音回显 |
 | [cmdCraft](https://github.com/MineAgent/cmdCraft) | 1.3.2 | `com.mineagent.aio.op` | `/op`：`craft` 合成 / `inventory` 换快捷栏 / `furnace` 熔炉 / `chest` 箱子 / `look` 转视角 |
@@ -61,7 +61,7 @@ Baritone（LGPL-3.0，实测 **1.19.0**，即 `baritone-api-fabric-1.19.0.jar`�
 ## 安装
 
 1. Minecraft **26.2** + Fabric Loader **0.19.5+**（不需要 Fabric API）。
-2. 把 `mineagentaio-1.0.0.jar` 放进 `.minecraft/mods/`。
+2. 把 `mineagentaio-1.0.2.jar` 放进 `.minecraft/mods/`。
 3. 要用 `bt` 再放一个 [Baritone](https://github.com/cabaletta/baritone)（1.19.0 实测）。
 4. 服务只绑定 `127.0.0.1:3420`，启动后 `curl http://127.0.0.1:3420/` 就能看到接口列表。
 
@@ -77,6 +77,30 @@ Baritone（LGPL-3.0，实测 **1.19.0**，即 `baritone-api-fabric-1.19.0.jar`�
   直接发 `ServerboundContainerClickPacket`，和玩家亲手点格子完全等价（服务端照常校验，不需要服务端模组）；
   `look` 把「转视角」从鼠标像素换算变成精确的角度命令。
 * **noautopause = 后台可跑**：窗口失去焦点时游戏不停，HTTP 注入的按键才会真的生效。
+
+## 窗口标题里的端口（1.0.2）
+
+服务正常起来后，游戏窗口标题会被追加 ` - 3420`：
+
+```
+Minecraft* 26.2 - 3420                   标题界面
+Minecraft* 26.2 - 单人游戏 - 3420         进了世界
+```
+
+这样一眼就能看出这个实例是不是**这一个**在提供 `127.0.0.1:3420`：端口被别的实例占着、本模组没起来时，
+标题原样不动（`Httpd.isRunning()` 为 false，`WindowTitle.decorate` 直接返回原字符串），日志里是
+`MineAgentAIO is not listening on http://127.0.0.1:3420 ...`。多开时只有真正绑到端口的那一个带后缀。
+
+实现上**没有任何平台分支**，也不需要 Fabric API：
+
+* 写标题走的是 GLFW（`GLFW.glfwSetWindowTitle`，LWJGL 随 Minecraft 一起发布），
+  Linux / Windows / macOS 都是同一份代码——不碰 `user32!SetWindowText`，也不碰 X11/Wayland。
+* 光调用一次不够：Minecraft 每次进出世界都会重新算一遍标题（`Minecraft#updateTitle` → `Window#setTitle`），
+  会把后缀盖掉。所以用一个 Mixin（`mixin/WindowTitleMixin`）在 `Window#setTitle` 的参数上做一次改写：
+  **所有**标题设置都从这里过，后缀不会被覆盖，重复设置也不会叠加（已经以 `" - 3420"` 结尾就不再追加）。
+* 窗口本身是用「入口点运行之前」算出来的标题创建的，所以入口点里在 `Httpd.start()` 成功后再刷一次
+  （`WindowTitle.refresh()` → `Minecraft#execute`），在第一个 tick、窗口已经有时执行：标题界面就带后缀，
+  不用等进世界。GLFW 要求窗口函数在主线程调用，这样也顺带满足了。
 
 ## 与合并前相比，接口有什么变化
 
@@ -97,7 +121,7 @@ Baritone（LGPL-3.0，实测 **1.19.0**，即 `baritone-api-fabric-1.19.0.jar`�
 需要 JDK 25（Minecraft 26.2 要求）。26.1 起官方代码不再混淆，所以 Loom 不需要任何 mappings 配置。
 
 ```bash
-./gradlew build          # 产物: build/libs/mineagentaio-1.0.0.jar
+./gradlew build          # 产物: build/libs/mineagentaio-1.0.2.jar
 ```
 
 ### 不依赖游戏验证 HTTP 层
@@ -136,6 +160,7 @@ java -cp build/verify VerifyExit    # 全部 ok 才退 0
 | 测试 | 结果 |
 | --- | --- |
 | 启动 | 日志 `mounted /ctl`、`mounted /aif`、`mounted /op`、`MineAgentAIO listening on http://127.0.0.1:3420` |
+| 窗口标题（1.0.2） | 服务起来后标题从 `Minecraft* 26.2` 变成 `Minecraft* 26.2 - 3420`（日志 `window title is now "Minecraft* 26.2 - 3420"`），进世界后 `Minecraft* 26.2 - 单人游戏 - 3420`；先用别的进程占住 3420 再启动，标题保持 `Minecraft* 26.2` 不变 |
 | `GET /` | 200，列出三组 endpoint |
 | `GET /ctl/` `GET /aif/` `GET /op/` | 200，三份中文说明书 |
 | `GET /aif/info` | 坐标/朝向/生命/饱食与游戏内一致 |
@@ -221,12 +246,14 @@ src/main/java/com/mineagent/aio/
   Messages.java             模组自己的文案表（读 jar 内的 lang json，不需要 Fabric API）
   NoAutoPause.java          失去焦点不暂停（合并自 noautopause）
   ClientExitWatcher.java    客户端退出后停服务并结束 JVM（不写崩溃报告）
-  http/                     HTTP 服务：Httpd（服务/前缀路由/GET / 索引）、Http（响应与请求体工具）、PathHandler
+  WindowTitle.java          窗口标题后缀（GLFW，无平台分支）+ 服务起来后刷一次标题
+  http/                     HTTP 服务：Httpd（服务/前缀路由/GET / 索引/isRunning）、Http（响应与请求体工具）、PathHandler
   ctl/                      来自 mcctl：命令解析、单线程执行器、真实输入注入、截图、光标
   aif/                      来自 AdvancedInfoFetcher：只读快照 + 聊天/声音增量队列（含两个 mixin）
   op/                       来自 cmdCraft：Brigadier 命令树、合成计划/任务、容器点击
   baritone/BaritoneBridge.java  唯一调用 Baritone 的地方（反射，Baritone 是可选的独立模组）
   mixin/MinecraftMixin.java 每个客户端 tick：推进合成任务 + noautopause
+  mixin/WindowTitleMixin.java     Window#setTitle 的参数改写（标题每次变化都带上端口后缀）
   mixin/ChatComponentMixin.java   聊天栏 → /aif/msg
   mixin/SoundEngineMixin.java     声音引擎 → /aif/sound
 tools/VerifyCtl.java        脱离游戏验证解析层 + /ctl 传输层
